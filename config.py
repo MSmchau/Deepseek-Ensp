@@ -1,5 +1,5 @@
 # DeepSeek API配置
-DEEPSEEK_API_KEY = "sk-c6f905086e174f72979f317fae5f82d3"  # 请替换为您的DeepSeek API密钥
+DEEPSEEK_API_KEY = "sk-xxxxxxxxxxx"  # 请替换为您的DeepSeek API密钥
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1"  # DeepSeek API接口地址，符合官方文档要求
 
 # 设备连接配置
