@@ -1,0 +1,31 @@
+################################################################################
+# AR2设备配置备份
+# 备份时间: 2025-10-17 12:10:28
+# 设备IP: 192.168.56.254
+################################################################################
+
+[V200R003C00]
+#
+ sysname AR2
+#
+ snmp-agent local-engineid 800007DB03000000000000
+ snmp-agent 
+#
+ clock timezone China-Standard-Time minus 08:00:00
+#
+portal local-server load flash:/portalpage.zip
+#
+ drop illegal-mac alarm
+#
+ undo info-center enable
+#
+vlan batch 100 200
+#
+ wlan ac-global carrier id other ac id 0
+#
+ set cpu-usage threshold 80 restore 75
+#
+vlan 100
+ description VLAN_100
+#
+  ---- More ----
