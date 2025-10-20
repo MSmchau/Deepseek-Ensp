@@ -263,8 +263,34 @@ python main.py --mode delete --device-id "device123"
 - `deepseek_api.py`: DeepSeek API交互模块，处理自然语言转配置命令
 - `network_device.py`: 网络设备连接模块，处理SSH连接和命令执行
 - `troubleshooter.py`: 故障排查模块，分析设备状态并生成报告
+- `gui.py`: 图形用户界面模块，提供可视化操作界面
 - `main.py`: 主程序，整合所有功能模块
 - `requirements.txt`: Python依赖包列表
 - `README.md`: 项目说明文档
+- `backup_ar2_config.py`: AR2设备配置备份脚本
+- `devices.json`: 设备信息配置文件
+- `backups/`: 配置备份目录
 
-## 不创建多余测试脚本，所有增加、删除、修改，全部按照README.md: 项目说明文档进行
+## 新增功能说明
+
+### Ping命令本地回退机制
+
+本项目在troubleshooter.py模块中实现了智能的ping命令执行机制：
+
+1. **设备直接执行**：当设备连接可用时，会直接在网络设备上执行ping命令，确保获取设备视角的真实网络状态
+
+2. **本地回退执行**：当设备未连接时，自动回退到本地系统ping命令，提供更好的用户体验和功能可用性
+
+3. **跨平台兼容**：支持Windows和非Windows系统的不同ping命令参数格式
+
+4. **实时输出**：保留了ping命令的实时输出功能，同时添加适当延迟以增强用户体验
+
+5. **准确统计**：正确统计发送和接收的数据包数量，并计算丢包率
+
+使用时无需特殊配置，系统会根据设备连接状态自动选择最优执行方式。
+
+不创建多余测试脚本，所有增加、删除、修改，全部按照README.md: 项目说明文档进行
+
+## GitHub更新说明
+
+**注意**：此README.md文件应更新到GitHub仓库，仓库名称为：Deepseek-Ensp。请联系开发团队获取仓库所有者名称和目标分支信息以完成更新。

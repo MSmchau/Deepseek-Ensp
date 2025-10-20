@@ -1,0 +1,18 @@
+[
+  {
+    "id": "1",
+    "type": "路由器",
+    "ip": "192.168.56.254",
+    "port": "22",
+    "username": "admin",
+    "password": "admin@123"
+  },
+  {
+    "id": "2",
+    "type": "交换机",
+    "ip": "192.168.56.1",
+    "port": "22",
+    "username": "admin",
+    "password": "admin@123"
+  }
+]

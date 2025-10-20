@@ -198,7 +198,34 @@ class DeepSeekAPI:
                 return f"system-view\ninterface {interface}\nport link-type trunk\nport trunk allow-pass vlan 2 to 4094\nquit"
             
             elif "vlan" in natural_language.lower():
-                # 尝试提取VLAN ID，支持中文格式如"vlan20"或"vlan 20"
+                # 检查是否包含删除VLAN的关键词
+                if any(keyword in natural_language.lower() for keyword in ["删除vlan", "删除 vlan", "移除vlan", "移除 vlan", "undo vlan"]):
+                    # 尝试提取所有数字作为VLAN ID
+                    vlan_ids = re.findall(r'\b\d+\b', natural_language)
+                    if vlan_ids:
+                        # 去重并保留原始顺序
+                        unique_vlan_ids = []
+                        seen = set()
+                        for vlan_id in vlan_ids:
+                            if vlan_id not in seen:
+                                seen.add(vlan_id)
+                                unique_vlan_ids.append(vlan_id)
+                        # 生成独立的删除命令，使用分号加空格分隔
+                        commands = []
+                        for vlan_id in unique_vlan_ids:
+                            commands.append(f"undo vlan {vlan_id}")
+                        return "; ".join(commands)
+                # 检查是否包含查看VLAN的关键词
+                elif any(keyword in natural_language.lower() for keyword in ["查看vlan", "查看 vlan", "display vlan", "显示vlan", "显示 vlan"]):
+                    # 查看VLAN信息的命令，不需要进入系统视图
+                    return "display vlan"
+                # 明确检查是否包含创建VLAN的关键词
+                elif any(keyword in natural_language.lower() for keyword in ["创建vlan", "创建 vlan", "新建vlan", "新建 vlan", "add vlan"]):
+                    # 尝试提取单个VLAN ID，支持中文格式如"vlan20"或"vlan 20"
+                    vlan_match = re.search(r'vlan\s*(\d+)', natural_language.lower())
+                    vlan_id = vlan_match.group(1) if vlan_match else "10"
+                    return f"system-view\nvlan {vlan_id}\nquit"
+                # 默认情况，尝试提取单个VLAN ID
                 vlan_match = re.search(r'vlan\s*(\d+)', natural_language.lower())
                 vlan_id = vlan_match.group(1) if vlan_match else "10"
                 return f"system-view\nvlan {vlan_id}\nquit"
@@ -207,7 +234,12 @@ class DeepSeekAPI:
             return "system-view\n# 模拟模式下的默认配置命令\nquit"
         
         # 非模拟模式下，调用DeepSeek API
-        prompt = f"请将以下自然语言描述转换为HUAWEI交换机配置命令：\n{natural_language}\n\n请只返回配置命令，不要包含其他说明文字。"
+        prompt = f'''
+请将以下自然语言描述转换为HUAWEI交换机配置命令：
+{natural_language}
+
+请只返回纯配置命令，不要包含任何解释、说明或标记文本。对于多个VLAN删除请求，请为每个VLAN生成独立的'undo vlan'命令，使用分号分隔。
+'''
         
         return self._call_api(prompt)
     
@@ -255,7 +287,17 @@ class DeepSeekAPI:
             }
         
         # 非模拟模式下，调用DeepSeek API进行验证
-        prompt = f"请验证以下HUAWEI交换机配置命令是否正确：\n{config}\n\n如果有错误，请指出错误并提供修正后的命令。\n\n请以JSON格式返回验证结果，包含以下字段：\n- valid: 布尔值，表示命令是否有效\n- errors: 字符串数组，如果有错误，请列出每个错误\n- corrected_commands: 字符串，如果命令有错误，请提供修正后的命令"
+        prompt = f'''
+请验证以下HUAWEI交换机配置命令是否正确：
+{config}
+
+如果有错误，请指出错误并提供修正后的命令。
+
+请以JSON格式返回验证结果，包含以下字段：
+- valid: 布尔值，表示命令是否有效
+- errors: 字符串数组，如果有错误，请列出每个错误
+- corrected_commands: 字符串，如果命令有错误，请提供修正后的命令
+'''
         
         try:
             result = self._call_api(prompt)

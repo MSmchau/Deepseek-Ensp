@@ -1,3 +1,4 @@
 # Python依赖包列表
 paramiko>=3.3.1  # SSH连接库，用于连接网络设备
 requests>=2.31.0  # HTTP请求库，用于调用DeepSeek API
+PyQt5>=5.15.10  # GUI框架，用于创建用户界面

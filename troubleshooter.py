@@ -1,6 +1,10 @@
 import logging
+import re
+import subprocess
+import platform
+import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Callable
 from config import SIMULATION_MODE
 from deepseek_api import DeepSeekAPI
 from network_device import NetworkDevice
@@ -23,6 +27,15 @@ class Troubleshooter:
         self.network_device = network_device
         self.deepseek_api = deepseek_api if deepseek_api else DeepSeekAPI()
         self.simulation_mode = SIMULATION_MODE
+        # 定义支持的网络排查命令
+        self.supported_commands = {
+            'ping': self._execute_ping,
+            'tracert': self._execute_tracert,
+            'display interface': self._execute_device_command,
+            'display vlan': self._execute_device_command,
+            'display arp': self._execute_device_command,
+            'display ip routing-table': self._execute_device_command
+        }
     
     def analyze_device_state(self, device_info: Dict[str, any]) -> Dict[str, any]:
         """
@@ -333,3 +346,467 @@ class Troubleshooter:
         except Exception as e:
             logger.error(f"保存故障排查报告时出错: {str(e)}")
             return None
+    
+    def run_troubleshooting(self, problem_description: str, callback: Optional[Callable] = None) -> str:
+        """
+        运行故障排查并处理问题描述中的网络命令
+        
+        Args:
+            problem_description: 问题描述，可能包含网络命令
+            callback: 可选的回调函数，用于实时更新进度或结果
+            
+        Returns:
+            故障排查结果文本
+        """
+        logger.info(f"执行故障排查，问题描述: {problem_description}")
+        
+        # 使用回调显示开始排查信息
+        if callback:
+            callback("开始故障排查...\n")
+            
+        # 检查问题描述中是否包含支持的网络命令
+        has_commands = False
+        
+        # 检查是否包含ping命令
+        ping_matches = re.findall(r'ping\s+(\S+)', problem_description)
+        for target in ping_matches:
+            has_commands = True
+            if callback:
+                callback(f"正在执行ping命令: {target}\n")
+            # 直接通过回调显示ping命令结果
+            self._execute_ping(target, callback)  # 使用回调直接显示结果，避免重复显示
+        
+        # 检查是否包含tracert命令
+        tracert_matches = re.findall(r'tracert\s+(\S+)', problem_description)
+        for target in tracert_matches:
+            has_commands = True
+            if callback:
+                callback(f"正在执行tracert命令: {target}\n")
+            # 对于tracert，仍然使用回调显示结果
+            self._execute_tracert(target, callback)
+        
+        # 检查是否包含设备命令
+        device_commands = []
+        for cmd in ['display interface', 'display vlan', 'display arp', 'display ip routing-table']:
+            if cmd in problem_description and self.network_device and self.network_device.connected:
+                device_commands.append(cmd)
+                has_commands = True
+        
+        # 执行设备命令
+        for cmd in device_commands:
+            if callback:
+                callback(f"正在执行设备命令: {cmd}\n")
+            # 对于设备命令，仍然使用回调显示结果
+            self._execute_device_command(cmd, callback)
+        
+        # 如果有命令结果，返回这些结果
+        if has_commands:
+            # 使用回调显示完成信息
+            if callback:
+                callback("命令执行完成\n")
+            
+            # 返回空字符串，避免结果被重复显示
+            return ""
+        
+        # 如果没有检测到命令，执行标准故障排查
+        try:
+            if callback:
+                callback("未检测到命令，执行标准故障排查流程\n")
+                
+            # 执行设备故障排查
+            troubleshooting_result = self.troubleshoot_device()
+            
+            # 生成故障排查报告
+            report_text = self.generate_troubleshooting_report(troubleshooting_result)
+            
+            if callback:
+                callback("故障排查完成，报告生成完毕\n")
+                
+            return report_text
+            
+        except Exception as e:
+            error_msg = f"故障排查执行失败: {str(e)}"
+            logger.error(f"执行故障排查时出错: {str(e)}")
+            if callback:
+                callback(error_msg)
+            return error_msg
+    
+    def _execute_ping(self, target: str, callback: Optional[Callable] = None) -> Dict[str, any]:
+        """
+        在网络设备上执行ping命令，支持实时回调更新
+        
+        Args:
+            target: 目标IP地址或主机名
+            callback: 可选的回调函数，用于实时更新结果
+            
+        Returns:
+            执行结果字典，包含命令、输出、状态等信息
+        """
+        logger.info(f"在网络设备上执行ping命令到目标: {target}")
+        
+        try:
+            # 如果在模拟模式下，仍然使用本地ping
+            if hasattr(self, 'simulation_mode') and self.simulation_mode:
+                # 构建本地命令
+                if platform.system() == "Windows":
+                    command = ["ping", target, "-n", "5", "-w", "1000"]
+                else:
+                    command = ["ping", target, "-c", "5", "-W", "1"]
+                
+                logger.info(f"模拟模式: 执行本地ping命令: {command}")
+                
+                # 初始化输出和统计信息
+                final_output = []
+                sent = 5
+                received = 0
+                loss_rate = "100.00%"
+                
+                # 执行ping命令并实时读取输出
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                )
+                
+                # 实时读取输出并直接使用系统实际输出格式
+                for line in process.stdout:
+                    stripped_line = line.strip()
+                    logger.debug(f"模拟模式Ping输出行: {stripped_line}")
+                    
+                    # 直接输出系统ping命令的原始输出，但添加缩进以保持一致的格式
+                    if stripped_line:
+                        indented_line = f"    {stripped_line}"
+                        final_output.append(indented_line)
+                        if callback:
+                            callback(f"{indented_line}\n")
+                            time.sleep(0.1)  # 添加短暂延迟以显示实时效果
+                    
+                    # 统计接收的数据包
+                    if platform.system() == "Windows":
+                        if "Reply from" in stripped_line and "time=" in stripped_line:
+                            received += 1
+                
+                # 等待进程完成
+                process.wait()
+                
+                # 计算丢包率
+                if sent > 0:
+                    loss_rate = f"{(1 - received/sent) * 100:.2f}%"
+                
+                # 合并最终输出
+                final_output_str = "\n".join(final_output)
+                
+                # 构建结果字典
+                result = {
+                    "command": f"ping {target}",
+                    "output": final_output_str,
+                    "status": "success" if process.returncode == 0 else "failure",
+                    "return_code": process.returncode,
+                    "sent": sent,
+                    "received": received,
+                    "loss_rate": loss_rate
+                }
+                
+                logger.info(f"模拟模式Ping命令执行完成: 发送={sent}, 接收={received}, 丢包率={loss_rate}")
+                return result
+            
+            # 非模拟模式：在网络设备上执行ping命令
+            final_output = []
+            
+            # 检查设备连接是否可用
+            if not hasattr(self, 'device') or self.device is None:
+                fallback_msg = "设备连接不可用，回退到本地ping命令"
+                logger.warning(fallback_msg)
+                if callback:
+                    callback(f"    {fallback_msg}\n")
+                
+                # 回退到本地ping命令
+                # 构建本地命令
+                if platform.system() == "Windows":
+                    command = ["ping", target, "-n", "5", "-w", "1000"]
+                else:
+                    command = ["ping", target, "-c", "5", "-W", "1"]
+                
+                logger.info(f"回退执行本地ping命令: {command}")
+                
+                # 初始化输出和统计信息
+                final_output = [f"    {fallback_msg}"]
+                sent = 5
+                received = 0
+                loss_rate = "100.00%"
+                
+                # 执行ping命令并实时读取输出
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                )
+                
+                # 实时读取输出并直接使用系统实际输出格式
+                for line in process.stdout:
+                    stripped_line = line.strip()
+                    logger.debug(f"本地Ping输出行: {stripped_line}")
+                    
+                    # 直接输出系统ping命令的原始输出，但添加缩进以保持一致的格式
+                    if stripped_line:
+                        indented_line = f"    {stripped_line}"
+                        final_output.append(indented_line)
+                        if callback:
+                            callback(f"{indented_line}\n")
+                            time.sleep(0.1)  # 添加短暂延迟以显示实时效果
+                    
+                    # 统计接收的数据包
+                    if platform.system() == "Windows":
+                        if "Reply from" in stripped_line and "time=" in stripped_line:
+                            received += 1
+                
+                # 等待进程完成
+                process.wait()
+                
+                # 计算丢包率
+                if sent > 0:
+                    loss_rate = f"{(1 - received/sent) * 100:.2f}%"
+                
+                # 合并最终输出
+                final_output_str = "\n".join(final_output)
+                
+                # 构建结果字典
+                result = {
+                    "command": f"ping {target}",
+                    "output": final_output_str,
+                    "status": "success" if process.returncode == 0 else "failure",
+                    "return_code": process.returncode,
+                    "sent": sent,
+                    "received": received,
+                    "loss_rate": loss_rate,
+                    "execution_mode": "local"
+                }
+                
+                logger.info(f"本地ping命令执行完成: 发送={sent}, 接收={received}, 丢包率={loss_rate}")
+                return result
+            
+            # 构建在设备上执行的ping命令（针对华为设备的命令格式）
+            device_ping_cmd = f"ping {target}"
+            logger.info(f"在设备上执行命令: {device_ping_cmd}")
+            
+            # 初始化统计信息
+            sent = 0
+            received = 0
+            loss_rate = "100.00%"
+            
+            # 在设备上执行ping命令并获取输出
+            try:
+                # 使用device对象的执行命令方法
+                if hasattr(self.device, 'execute_command'):
+                    # 发送开始执行信息
+                    if callback:
+                        callback(f"正在设备上执行ping命令: {target}\n")
+                    
+                    # 执行命令并获取输出
+                    output = self.device.execute_command(device_ping_cmd)
+                    logger.debug(f"设备ping命令输出: {output}")
+                    
+                    # 分割输出行并处理
+                    output_lines = output.strip().split('\n')
+                    for line in output_lines:
+                        stripped_line = line.strip()
+                        if stripped_line:
+                            # 添加缩进以保持一致的格式
+                            indented_line = f"    {stripped_line}"
+                            final_output.append(indented_line)
+                            if callback:
+                                callback(f"{indented_line}\n")
+                                time.sleep(0.1)
+                        
+                        # 统计信息（适配华为设备ping输出格式）
+                        if "packets transmitted" in stripped_line.lower() or "packet(s) transmitted" in stripped_line:
+                            # 提取发送的数据包数
+                            sent_match = re.search(r'(\d+)\s*packet', stripped_line, re.IGNORECASE)
+                            if sent_match:
+                                sent = int(sent_match.group(1))
+                        elif "packets received" in stripped_line.lower() or "packet(s) received" in stripped_line:
+                            # 提取接收的数据包数
+                            recv_match = re.search(r'(\d+)\s*packet', stripped_line, re.IGNORECASE)
+                            if recv_match:
+                                received = int(recv_match.group(1))
+                        elif "packet loss" in stripped_line.lower() or "packet loss" in stripped_line:
+                            # 提取丢包率
+                            loss_match = re.search(r'(\d+\.?\d*)%', stripped_line)
+                            if loss_match:
+                                loss_rate = f"{float(loss_match.group(1)):.2f}%"
+            except Exception as device_error:
+                error_msg = f"在设备上执行ping命令失败: {str(device_error)}"
+                logger.error(error_msg)
+                final_output.append(f"    {error_msg}")
+                if callback:
+                    callback(f"    {error_msg}\n")
+            
+            # 如果没有从输出中提取到统计信息，尝试根据输出内容判断
+            if sent == 0:
+                # 假设发送了5个数据包（华为设备默认）
+                sent = 5
+                # 根据输出中是否包含"Reply from"或类似字样估算接收数
+                for line in output_lines:
+                    if "Reply from" in line or "bytes=" in line:
+                        received += 1
+                # 重新计算丢包率
+                if sent > 0:
+                    loss_rate = f"{(1 - received/sent) * 100:.2f}%"
+            
+            # 合并最终输出
+            final_output_str = "\n".join(final_output)
+            
+            # 构建结果字典
+            result = {
+                "command": device_ping_cmd,
+                "output": final_output_str,
+                "status": "success" if received > 0 else "failure",
+                "return_code": 0 if received > 0 else 1,
+                "sent": sent,
+                "received": received,
+                "loss_rate": loss_rate
+            }
+            
+            logger.info(f"设备ping命令执行完成: 发送={sent}, 接收={received}, 丢包率={loss_rate}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"执行ping命令时出错: {str(e)}")
+            error_output = f"    执行ping命令时出错: {str(e)}"
+            
+            if callback:
+                callback(f"{error_output}\n")
+            
+            # 返回错误结果
+            return {
+                "command": f"ping {target}",
+                "output": error_output,
+                "status": "error",
+                "return_code": -1,
+                "error_message": str(e),
+                "sent": 0,
+                "received": 0,
+                "loss_rate": "100.00%"
+            }
+    
+    def _execute_tracert(self, target: str, callback: Optional[Callable] = None) -> str:
+        """
+        执行tracert命令，支持实时回调更新
+        
+        Args:
+            target: 目标IP地址或主机名
+            callback: 可选的回调函数，用于实时更新结果
+            
+        Returns:
+            tracert命令执行结果
+        """
+        logger.info(f"执行tracert命令到目标: {target}")
+        
+        # 模拟模式
+        if self.simulation_mode:
+            result = "模拟模式: 执行tracert命令\n"
+            result += f"通过最多 30 个跃点跟踪 {target} [192.168.1.1] 的路由:\n"
+            if callback:
+                callback(result)
+                
+            result += f"  1    <1 ms    <1 ms    <1 ms  192.168.0.1\n"
+            if callback:
+                callback(result)
+                
+            result += f"  2    1 ms     1 ms     1 ms   10.0.0.1\n"
+            if callback:
+                callback(result)
+                
+            result += f"  3    2 ms     2 ms     2 ms   192.168.1.1\n\n"
+            result += f"跟踪完成。"
+            if callback:
+                callback(result)
+                
+            return result
+        
+        # 实际执行tracert命令
+        try:
+            # 根据操作系统确定tracert命令
+            if platform.system() == "Windows":
+                command = ["tracert", "-d", "-h", "30", target]
+            else:
+                command = ["traceroute", "-n", "-m", "30", target]
+            
+            # 执行命令
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            
+            result = []
+            for line in process.stdout:
+                result_line = line.strip()
+                result.append(result_line)
+                # 如果提供了回调函数，实时更新结果
+                if callback:
+                    callback("\n".join(result))
+            
+            # 等待进程完成并获取返回码
+            process.wait()
+            
+            if process.returncode != 0:
+                error_msg = f"tracert命令执行失败，返回码: {process.returncode}"
+                logger.warning(error_msg)
+                if callback:
+                    callback("\n".join(result) + "\n" + error_msg)
+                    
+            return "\n".join(result)
+            
+        except Exception as e:
+            error_msg = f"执行tracert命令失败: {str(e)}"
+            logger.error(f"执行tracert命令时出错: {str(e)}")
+            if callback:
+                callback(error_msg)
+            return error_msg
+    
+    def _execute_device_command(self, command: str, callback: Optional[Callable] = None) -> str:
+        """
+        执行设备命令，支持实时回调更新
+        
+        Args:
+            command: 要执行的设备命令
+            callback: 可选的回调函数，用于实时更新结果
+            
+        Returns:
+            命令执行结果
+        """
+        logger.info(f"执行设备命令: {command}")
+        
+        # 检查设备连接
+        if not self.network_device or not self.network_device.connected:
+            error_msg = "错误: 设备未连接"
+            if callback:
+                callback(error_msg)
+            return error_msg
+        
+        # 先显示执行中的提示
+        running_msg = f"正在执行设备命令: {command}\n请稍候...\n"
+        if callback:
+            callback(running_msg)
+            
+        try:
+            # 执行命令
+            result = self.network_device.execute_command(command)
+            
+            # 如果提供了回调函数，更新最终结果
+            if callback:
+                callback(result)
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"执行命令失败: {str(e)}"
+            logger.error(f"执行设备命令时出错: {str(e)}")
+            if callback:
+                callback(error_msg)
+            return error_msg
