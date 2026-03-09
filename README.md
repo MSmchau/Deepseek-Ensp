@@ -24,7 +24,7 @@
 2. 安装所需的Python依赖包：
 
 ```bash
-cd d:\Python\Deepseek接入Ensp
+cd d:\Python\you path
 pip install -r requirements.txt
 ```
 
